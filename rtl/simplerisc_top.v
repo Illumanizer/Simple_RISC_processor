@@ -4,8 +4,8 @@
 
 module simplerisc_top(
     input  wire clk,
-    input  wire rstn,
-    output wire[31:0] alu_debug
+    input  wire rstn
+    // ,output wire[31:0] alu_debug
 );
     // ==== Program Counter ====
     reg [31:0] pc, pc_next;
@@ -134,5 +134,5 @@ module simplerisc_top(
         if (!rstn) pc <= 32'd0;
         else       pc <= pc_next;
     end
-    assign alu_debug=alu_y;
+    // assign alu_debug=alu_y;
 endmodule
