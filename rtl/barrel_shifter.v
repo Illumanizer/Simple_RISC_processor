@@ -1,4 +1,4 @@
-// sll32_case.v
+
 `timescale 1ns/1ps
 module sll32(
     input  wire [31:0] a,
@@ -45,8 +45,6 @@ module sll32(
 endmodule
 
 
-// srl32_case.v
-`timescale 1ns/1ps
 module srl32 (
     input  wire [31:0] a,
     input  wire [4:0]  shamt,
@@ -91,8 +89,6 @@ module srl32 (
     end
 endmodule
 
-// sra32_case.v
-`timescale 1ns/1ps
 module sra32 (
     input  wire [31:0] a,
     input  wire [4:0]  shamt,

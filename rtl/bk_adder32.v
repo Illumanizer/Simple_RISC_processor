@@ -1,7 +1,6 @@
-// bk_adder32.v
+
 // Brent-Kung style 32-bit adder implemented with a generic prefix-tree.
-// Parameterized width = 32 (default).
-// Interface: a, b, cin -> sum, cout
+
 `timescale 1ns/1ps
 
 module bk_adder32 (

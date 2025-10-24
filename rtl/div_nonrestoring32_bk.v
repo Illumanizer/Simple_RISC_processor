@@ -1,9 +1,4 @@
 `timescale 1ns/1ps
-// div_nonrestoring32_bk_fixed.v
-// Single-cycle, fully-unrolled non-restoring signed divider using bk_adder32
-// Fixed: use stage_P_m[i] as the MSB ("shift_m") when deciding add vs sub.
-// (All additions/subtractions are performed via bk_adder32 instances.)
-
 module div_nonrestoring32_bk (
     input  wire signed [31:0] dividend,
     input  wire signed [31:0] divisor,

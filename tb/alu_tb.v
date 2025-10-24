@@ -73,9 +73,6 @@ module tb_alu;
         $display("==============================================================");
         $display("\n");
         
-        // Enable VCD waveform dump
-        $dumpfile("alu_wave.vcd");
-        $dumpvars(0, tb_alu);
         
         //=====================================================================
         // GROUP 1: ADDITION (ALU_ADD)

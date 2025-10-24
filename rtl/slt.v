@@ -1,4 +1,3 @@
-// slt32_methodB.v  (signed a < b ? 1 : 0)
 `timescale 1ns/1ps
 module slt32 (
     input  wire [31:0] a,

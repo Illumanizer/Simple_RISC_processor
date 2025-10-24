@@ -37,7 +37,7 @@ test_alu:
 	vvp build/alu_tb.vvp
 
 test_simplerisc:
-	iverilog -g2012 -I rtl -o build/tb_simplerisc.vvp rtl/*.v  tb/tb_simplerisc.v 
+	iverilog -g2012 -I rtl -o build/tb_simplerisc.vvp rtl/*.v  $(TOP)
 	vvp build/tb_simplerisc.vvp
 
 build:
