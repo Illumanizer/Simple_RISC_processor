@@ -7,7 +7,7 @@ module tb_alu_divmod;
     wire signed [31:0] remainder;
 
     // instantiate your divider (combinational)
-    div_radix4_unrolled DUT (
+    div_nonrestoring32_bk DUT (
         .dividend(dividend),
         .divisor(divisor),
         .quotient(quotient),
