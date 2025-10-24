@@ -1,0 +1,4 @@
+build/
+wave.vcd
+tb_div_compare.vcd
+alu_wave.vcd

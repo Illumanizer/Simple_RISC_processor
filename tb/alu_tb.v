@@ -380,10 +380,126 @@ module tb_alu;
         test_alu(32'd1000, 32'd7, `ALU_DIV, 32'd142, 1'b0,
                  "DIV: 1000 / 7 = 142 (prime divisor)");
 
-        // ... (rest of your division/modulo/pass/edge tests continue exactly as above) ...
-        // For brevity I didn't repeat every single call here in the listing, but your
-        // original sequence (after fixing the ALU_NOT token) is preserved.
+//=====================================================================
+        // GROUP 13: MODULUS (ALU_MOD)
+        //=====================================================================
+        $display("\nGROUP 13: MODULUS (ALU_MOD)");
+        
+        test_alu(32'd20, 32'd6, `ALU_MOD, 32'd2, 1'b0,
+                 "MOD: 20 % 6 = 2");
+        
+        test_alu(32'd17, 32'd5, `ALU_MOD, 32'd2, 1'b0,
+                 "MOD: 17 % 5 = 2");
+        
+        test_alu(32'd100, 32'd10, `ALU_MOD, 32'd0, 1'b1,
+                 "MOD: 100 % 10 = 0 (zero flag)");
 
+        test_alu(32'd1000, 32'd7, `ALU_MOD, 32'd6, 1'b0,
+                "MOD: 1000 % 7 = 6");
+        test_alu(32'hFFFFFFEC, 32'hFFFFFFFC, `ALU_MOD, 32'd0, 1'b1,
+         "MOD: -20 % -4 = 0 (both negative)");
+test_alu(32'hFFFFFFF9, 32'hFFFFFFFD, `ALU_MOD, 32'hFFFFFFFF, 1'b0,
+         "MOD: -7 % -3 = -1 (negative remainder)");
+        
+        test_alu(32'd10, 32'd0, `ALU_MOD, 32'd10, 1'b0,
+                 "MOD: 10 % 0 = 10 (divide by zero, returns dividend, zero flag 0)");
+        
+        test_alu(32'd7, 32'd3, `ALU_MOD, 32'd1, 1'b0,
+                 "MOD: 7 % 3 = 1");
+        
+        test_alu(32'd15, 32'd4, `ALU_MOD, 32'd3, 1'b0,
+                 "MOD: 15 % 4 = 3");
+        
+        test_alu(32'd0, 32'd5, `ALU_MOD, 32'd0, 1'b1,
+                 "MOD: 0 % 5 = 0 (zero flag)");
+        
+        // Modulo sign behavior for negatives (remainder should inherit sign of dividend)
+       test_alu(32'hFFFFFFEC, 32'd4, `ALU_MOD, 32'd0, 1'b1,
+         "MOD: -20 % 4 = 0 (remainder zero)");
+
+        // Above line mostly checks for consistency; adjust expected encoding if needed.
+        
+        // Edge: remainder equals divisor (should never happen after correction) - check a case known to cause off-by-one in naive reciprocal
+        test_alu(32'd100, 32'd25, `ALU_MOD, 32'd0, 1'b1,
+                 "MOD: 100 % 25 = 0 (sanity)");
+        
+        //=====================================================================
+        // GROUP 14: PASS (ALU_PASS)
+        //=====================================================================
+        $display("\nGROUP 14: PASS (ALU_PASS)");
+        
+        test_alu(32'd0, 32'd42, `ALU_PASS, 32'd42, 1'b0,
+                 "PASS: pass(42) = 42");
+        
+        test_alu(32'd0, 32'd0, `ALU_PASS, 32'd0, 1'b1,
+                 "PASS: pass(0) = 0 (zero flag)");
+        
+        test_alu(32'd0, 32'hDEADBEEF, `ALU_PASS, 32'hDEADBEEF, 1'b0,
+                 "PASS: pass(0xDEADBEEF) = 0xDEADBEEF");
+        
+        test_alu(32'd0, 32'hFFFFFFFF, `ALU_PASS, 32'hFFFFFFFF, 1'b0,
+                 "PASS: pass(0xFFFFFFFF) = 0xFFFFFFFF (-1)");
+        
+        test_alu(32'd0, 32'h80000000, `ALU_PASS, 32'h80000000, 1'b0,
+                 "PASS: pass(0x80000000) = 0x80000000 (MinInt)");
+        
+        test_alu(32'd0, 32'h7FFFFFFF, `ALU_PASS, 32'h7FFFFFFF, 1'b0,
+                 "PASS: pass(0x7FFFFFFF) = 0x7FFFFFFF (MaxInt)");
+        
+        //=====================================================================
+        // GROUP 15: EDGE CASES
+        //=====================================================================
+        $display("\nGROUP 15: EDGE CASES");
+        
+        // INT_MIN / -1 for division (overflow case)
+        test_alu(32'h80000000, 32'hFFFFFFFF, `ALU_DIV, 32'h80000000, 1'b0,
+                 "EDGE: INT_MIN / -1 => 0x80000000 (overflow handling)");
+        
+        // INT_MIN * -1 in multiplication (check lower 32 bits behavior)
+        test_alu(32'h80000000, 32'hFFFFFFFF, `ALU_MUL, 32'h80000000, 1'b0,
+                 "EDGE: INT_MIN * -1 => lower 32 bits 0x80000000 (signed wrap)");
+        
+        // Multiply large numbers to cause lower bits wrapping
+        test_alu(32'hFFFFFFFF, 32'hFFFFFFFF, `ALU_MUL, 32'h00000001, 1'b0,
+                 "EDGE: -1 * -1 = 1");
+        
+        // Division by 1 and -1 exactness
+        test_alu(32'd12345678, 32'd1, `ALU_DIV, 32'd12345678, 1'b0,
+                 "EDGE: x / 1 = x");
+        test_alu(32'd12345678, 32'hFFFFFFFF, `ALU_DIV, 32'hFF439EB2, 1'b0,
+         "EDGE: x / -1 = -x (check sign)"); // may differ for INT_MIN
+        
+        // Modulo by 1 and -1
+        test_alu(32'd123, 32'd1, `ALU_MOD, 32'd0, 1'b1,
+                 "EDGE: x % 1 = 0");
+        test_alu(32'd123, 32'hFFFFFFFF, `ALU_MOD, 32'd0, 1'b1,
+                 "EDGE: x % -1 = 0");
+        
+        // Divisor = 2^n (power-of-two) behavior: should be exact via shift
+        test_alu(32'd64, 32'd8, `ALU_DIV, 32'd8, 1'b0,
+                 "EDGE: 64 / 8 = 8 (pow2)");
+        test_alu(32'd65, 32'd8, `ALU_DIV, 32'd8, 1'b0,
+                 "EDGE: 65 / 8 = 8 (truncation)");
+        test_alu(32'hFFFFFFFF, 32'd8, `ALU_DIV, 32'd0, 1'b1,
+         "EDGE: -1 / 8 = 0 (truncation toward zero)");
+        
+        // Test divisors around LUT boundary
+        test_alu(32'd257, 32'd256, `ALU_DIV, 32'd1, 1'b0,
+                 "EDGE: 257 / 256 = 1 (boundary)");
+        test_alu(32'd255, 32'd255, `ALU_DIV, 32'd1, 1'b0,
+                 "EDGE: 255 / 255 = 1 (LUT value)");
+        
+        // Test remainder sign for negative dividend
+       test_alu(32'hFFFFFFF6, 32'd10, `ALU_MOD, 32'd0, 1'b1,
+         "EDGE: -10 % 10 = 0 (remainder zero)");
+
+        
+        // Division and modulo by zero variants (already included earlier but recheck semantics)
+        test_alu(32'd0, 32'd0, `ALU_DIV, 32'hFFFFFFFF, 1'b1,
+                 "EDGE: 0 / 0 => DIV returns 0xFFFFFFFF, zero=1 (per DUT semantics)");
+        test_alu(32'd0, 32'd0, `ALU_MOD, 32'd0, 1'b0,
+                 "EDGE: 0 % 0 => MOD returns dividend (0), zero=0 (per DUT semantics)");
+        
         //=====================================================================
         // SUMMARY
         //=====================================================================
@@ -394,11 +510,8 @@ module tb_alu;
         $display("Total Tests:  %0d", pass_count + fail_count);
         $display("Passed:       %0d", pass_count);
         $display("Failed:       %0d", fail_count);
-        if (pass_count + fail_count != 0)
-            $display("Success Rate: %0.1f%%", (pass_count * 100.0) / (pass_count + fail_count));
-        else
-            $display("Success Rate: N/A (no tests run)");
-
+        $display("Success Rate: %0.1f%%", (pass_count * 100.0) / (pass_count + fail_count));
+        
         if (fail_count == 0) begin
             $display("\n ALL TESTS PASSED! \n");
         end else begin

@@ -20,7 +20,7 @@ module alu (
     // Instantiate adder (for add/sub and used by multiplier internally)
     wire [31:0] sum_add;
     wire        cout_add;
-    bk_adder32 #(.WIDTH(32), .LG(5)) ADDER (
+    bk_adder32 ADDER (
         .a(a),
         .b(b),
         .cin(1'b0),
@@ -28,11 +28,33 @@ module alu (
         .cout(cout_add)
     );
 
+
+    //barrel shifter
+    wire [31:0] LLS_shift_out;
+    sll32 LLS (
+        .a      (a),
+        .shamt  (b[4:0]),   // typically lower 5 bits of 'b'
+        .y      (LLS_shift_out)
+    );
+    wire [31:0] LRS_shift_out;
+    srl32  LRS (
+        .a      (a),
+        .shamt  (b[4:0]),   // typically lower 5 bits of 'b'
+        .y      (LRS_shift_out)
+    );
+    wire [31:0] ARS_shift_out;
+    sra32 ARS (
+        .a      (a),
+        .shamt  (b[4:0]),   // typically lower 5 bits of 'b'
+        .y      (ARS_shift_out)
+    );
+    
+
     // Subtraction via add with two's complement
     wire [31:0] b_neg = ~b + 1;
     wire [31:0] sum_sub;
     wire        cout_sub;
-    bk_adder32 #(.WIDTH(32), .LG(5)) SUB_ADDER (
+    bk_adder32 SUB_ADDER (
         .a(a),
         .b(b_neg),
         .cin(1'b0),
@@ -41,12 +63,17 @@ module alu (
     );
 
     // SLT (signed)
-    wire slt_bit = (a_s < b_s);
+    wire slt_bit ;
+    slt32 SLT_INST (
+        .a(a),
+        .b(b),
+        .slt(slt_bit)
+    );
 
     // Shifts
-    wire [31:0] sll_r = a << b[4:0];
-    wire [31:0] srl_r = a >> b[4:0];
-    wire [31:0] sra_r = a_s >>> b[4:0];
+    wire [31:0] sll_r = LLS_shift_out;
+    wire [31:0] srl_r = LRS_shift_out;
+    wire [31:0] sra_r = ARS_shift_out;
 
     // Logic
     wire [31:0] and_r  = a & b;
@@ -72,8 +99,7 @@ module alu (
         .quotient(div_q),
         .remainder(div_r)
     );
-//iverilog -g2012 -I rtl -o build/alu_tb.vvp tb/alu_tb.v rtl/bk_adder32.v rtl/alu.v rtl/mul_tree32.v rtl/div_restoring32.v
-//vvp build/alu_tb.vvp 
+
     // divisor zero indication (unsigned test)
     wire div_zero = (b == 32'd0);
 
