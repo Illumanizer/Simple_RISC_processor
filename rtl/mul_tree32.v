@@ -1,17 +1,18 @@
-`timescale 1ns/1ps
-// mul_tree32_wallace.v
-// 32x32 signed multiplier using Wallace-style CSA reduction tree
-// - Generates 32 partial 64-bit partials (a_abs << j) when b_abs[j]==1
-// - Reduces them with 3:2 carry-save adders (CSA) in a Wallace reduction until 2 rows remain
-// - Final 64-bit CPA done with two bk_adder32 (low then high with carry)
-// - Sign correction applied at the end
+`timescale 1ns / 1ps
+// radix4_booth_mul32_fixed.v
+// 32x32 radix-4 Booth multiplier (magnitude-based) with CSA reduction.
+// - Operates on absolute magnitudes, restores sign at the end.
+// - Produces lower 32 bits (signed) of the 64-bit product.
 
 module mul_tree32 (
-    input  wire signed [31:0] a, // multiplicand
-    input  wire signed [31:0] b, // multiplier
-    output wire signed [31:0] product
+    input  wire signed [31:0] a,   // multiplicand
+    input  wire signed [31:0] b,   // multiplier
+    output wire signed [31:0] product // lower 32 bits (signed)
 );
-    // sign handling and magnitudes
+
+    // ------------------------
+    // sign & magnitudes (operate on magnitudes)
+    // ------------------------
     wire sign_a = a[31];
     wire sign_b = b[31];
     wire sign_res = sign_a ^ sign_b;
@@ -19,213 +20,145 @@ module mul_tree32 (
     wire [31:0] a_abs = sign_a ? (~a + 32'd1) : a;
     wire [31:0] b_abs = sign_b ? (~b + 32'd1) : b;
 
-    // ----------------------------
-    // Level 0 partials (32 x 64-bit)
-    // ----------------------------
-    wire [63:0] L0 [0:31];
-    genvar gi;
+    // extend multiplier magnitude for 3-bit windows
+    wire [32:0] b_ext = { b_abs, 1'b0 }; // [32:0]
+
+    // ------------------------
+    // Generate 16 partials (65-bit)
+    // Each partial is generated from a_abs and may be negated (two's complement) if Booth digit is negative.
+    // ------------------------
+    wire [64:0] pp [0:15];
+    genvar i;
     generate
-        for (gi = 0; gi < 32; gi = gi + 1) begin : GEN_L0
-            // shift-and-add partial: a_abs shifted left by gi when b_abs[gi]==1
-            assign L0[gi] = b_abs[gi] ? ({32'd0, a_abs} << gi) : 64'd0;
+        for (i = 0; i < 16; i = i + 1) begin : GEN_PARTIALS
+            wire [2:0] bits = b_ext[2*i+2 -: 3]; // bits [2*i+2 : 2*i]
+            // positive magnitude forms:
+            wire [64:0] pos1 = {{33{1'b0}}, a_abs};           // +1 * A placed in low bits, sign-extended zeros
+            wire [64:0] pos2 = {{32{1'b0}}, a_abs, 1'b0};     // +2 * A (shifted left 1)
+            // Negation of pos forms (two's complement) computed with bitwise invert + 1
+            wire [64:0] neg1 = (~pos1) + 65'd1;
+            wire [64:0] neg2 = (~pos2) + 65'd1;
+
+            // select based on booth bits
+            wire [64:0] p;
+            assign p = (bits == 3'b001 || bits == 3'b010) ? pos1 :
+                       (bits == 3'b011) ? pos2 :
+                       (bits == 3'b100) ? neg2 :
+                       (bits == 3'b101 || bits == 3'b110) ? neg1 :
+                       65'd0;
+
+            assign pp[i] = p;
         end
     endgenerate
 
-    // ----------------------------
-    // Helper: 3:2 CSA implemented bitwise for 64-bit inputs
-    // sum = a ^ b ^ c
-    // carry = (a&b | b&c | a&c) << 1
-    // ----------------------------
-    // We'll use inline expressions in generates below.
-
-    // ----------------------------------------------------------------
-    // Wallace reduction levels:
-    // N0 = 32 -> N1 = 22
-    // N1 = 22 -> N2 = 15
-    // N2 = 15 -> N3 = 10
-    // N3 = 10 -> N4 = 7
-    // N4 = 7  -> N5 = 5
-    // N5 = 5  -> N6 = 4
-    // N6 = 4  -> N7 = 3
-    // N7 = 3  -> N8 = 2  (stop)
-    // We'll create arrays for each level sized accordingly.
-    // ----------------------------------------------------------------
-
-    // L1: 22 entries
-    wire [63:0] L1 [0:21];
+    // ------------------------
+    // shift partials to their positions (left by 2*i)
+    // ------------------------
+    wire [64:0] pp_sh [0:15];
     generate
-        for (gi = 0; gi < 10; gi = gi + 1) begin : GEN_L1_CSAS
-            // group of 3: L0[3*gi], L0[3*gi+1], L0[3*gi+2]
-            wire [63:0] A = L0[3*gi];
-            wire [63:0] B = L0[3*gi+1];
-            wire [63:0] C = L0[3*gi+2];
-            wire [63:0] S = A ^ B ^ C;
-            wire [63:0] CARR = ((A & B) | (B & C) | (A & C)) << 1;
-            assign L1[2*gi]     = S;
-            assign L1[2*gi + 1] = CARR;
-        end
-        // leftovers: L0[30], L0[31] map to L1[20], L1[21]
-        assign L1[20] = L0[30];
-        assign L1[21] = L0[31];
-    endgenerate
-
-    // L2: 15 entries
-    wire [63:0] L2 [0:14];
-    generate
-        for (gi = 0; gi < 7; gi = gi + 1) begin : GEN_L2_CSAS
-            wire [63:0] A = L1[3*gi];
-            wire [63:0] B = L1[3*gi+1];
-            wire [63:0] C = L1[3*gi+2];
-            wire [63:0] S = A ^ B ^ C;
-            wire [63:0] CARR = ((A & B) | (B & C) | (A & C)) << 1;
-            assign L2[2*gi]     = S;
-            assign L2[2*gi + 1] = CARR;
-        end
-        // leftover: L1[21] -> L2[14]
-        assign L2[14] = L1[21];
-    endgenerate
-
-    // L3: 10 entries
-    wire [63:0] L3 [0:9];
-    generate
-        for (gi = 0; gi < 5; gi = gi + 1) begin : GEN_L3_CSAS
-            wire [63:0] A = L2[3*gi];
-            wire [63:0] B = L2[3*gi+1];
-            wire [63:0] C = L2[3*gi+2];
-            wire [63:0] S = A ^ B ^ C;
-            wire [63:0] CARR = ((A & B) | (B & C) | (A & C)) << 1;
-            assign L3[2*gi]     = S;
-            assign L3[2*gi + 1] = CARR;
+        for (i = 0; i < 16; i = i + 1) begin : GEN_SHIFT
+            assign pp_sh[i] = pp[i] << (2*i); // preserve full 65-bit width
         end
     endgenerate
 
-    // L4: 7 entries
-    wire [63:0] L4 [0:6];
+    // ------------------------
+    // CSA reduction (simple staged 3:2 reduction)
+    // Schedule reduces 16 -> 11 -> 8 -> 6 -> 4 -> 3 -> 2 (final pair F0,F1)
+    // ------------------------
+
+    // Level1: from 16 -> 11
+    wire [64:0] L1 [0:10];
     generate
-        for (gi = 0; gi < 3; gi = gi + 1) begin : GEN_L4_CSAS
-            wire [63:0] A = L3[3*gi];
-            wire [63:0] B = L3[3*gi+1];
-            wire [63:0] C = L3[3*gi+2];
-            wire [63:0] S = A ^ B ^ C;
-            wire [63:0] CARR = ((A & B) | (B & C) | (A & C)) << 1;
-            assign L4[2*gi]     = S;
-            assign L4[2*gi + 1] = CARR;
+        for (i = 0; i < 5; i = i + 1) begin : L1_CSAS
+            wire [64:0] A = pp_sh[3*i];
+            wire [64:0] B = pp_sh[3*i + 1];
+            wire [64:0] C = pp_sh[3*i + 2];
+            wire [64:0] S = A ^ B ^ C;
+            wire [64:0] Carr = ((A & B) | (B & C) | (A & C)) << 1;
+            assign L1[2*i]     = S;
+            assign L1[2*i + 1] = Carr;
         end
-        // leftover: L3[6] -> L4[6]
-        assign L4[6] = L3[6];
+        assign L1[10] = pp_sh[15];
     endgenerate
 
-    // L5: 5 entries
-    wire [63:0] L5 [0:4];
+    // Level2: 11 -> 8
+    wire [64:0] L2 [0:7];
     generate
-        for (gi = 0; gi < 2; gi = gi + 1) begin : GEN_L5_CSAS
-            wire [63:0] A = L4[3*gi];
-            wire [63:0] B = L4[3*gi+1];
-            wire [63:0] C = L4[3*gi+2];
-            wire [63:0] S = A ^ B ^ C;
-            wire [63:0] CARR = ((A & B) | (B & C) | (A & C)) << 1;
-            assign L5[2*gi]     = S;
-            assign L5[2*gi + 1] = CARR;
+        for (i = 0; i < 3; i = i + 1) begin : L2_CSAS
+            wire [64:0] A = L1[3*i];
+            wire [64:0] B = L1[3*i + 1];
+            wire [64:0] C = L1[3*i + 2];
+            wire [64:0] S = A ^ B ^ C;
+            wire [64:0] Carr = ((A & B) | (B & C) | (A & C)) << 1;
+            assign L2[2*i]     = S;
+            assign L2[2*i + 1] = Carr;
         end
-        // leftovers: L4[6] and L4[4] map to L5[4]? Careful: we processed indices 0..5 => consumed 6 items, leftover is L4[6]
-        assign L5[4] = L4[6];
+        assign L2[6] = L1[9];
+        assign L2[7] = L1[10];
     endgenerate
 
-    // L6: 4 entries
-    wire [63:0] L6 [0:3];
+    // Level3: 8 -> 6
+    wire [64:0] L3 [0:5];
     generate
-        // group one CSA on L5[0..2]
-        wire [63:0] S0 = L5[0] ^ L5[1] ^ L5[2];
-        wire [63:0] C0 = ((L5[0] & L5[1]) | (L5[1] & L5[2]) | (L5[0] & L5[2])) << 1;
-        assign L6[0] = S0;
-        assign L6[1] = C0;
-        // leftover from previous stage: L5[3] and L5[4] become next entries
-        assign L6[2] = L5[3];
-        assign L6[3] = L5[4];
+        for (i = 0; i < 2; i = i + 1) begin : L3_CSAS
+            wire [64:0] A = L2[3*i];
+            wire [64:0] B = L2[3*i + 1];
+            wire [64:0] C = L2[3*i + 2];
+            wire [64:0] S = A ^ B ^ C;
+            wire [64:0] Carr = ((A & B) | (B & C) | (A & C)) << 1;
+            assign L3[2*i]     = S;
+            assign L3[2*i + 1] = Carr;
+        end
+        assign L3[4] = L2[6];
+        assign L3[5] = L2[7];
     endgenerate
 
-    // L7: 3 entries
-    wire [63:0] L7 [0:2];
+    // Level4: 6 -> 4
+    wire [64:0] L4 [0:3];
     generate
-        // CSA on L6[0..2] => produces two outputs + leftover L6[3]
-        wire [63:0] S1 = L6[0] ^ L6[1] ^ L6[2];
-        wire [63:0] C1 = ((L6[0] & L6[1]) | (L6[1] & L6[2]) | (L6[0] & L6[2])) << 1;
-        assign L7[0] = S1;
-        assign L7[1] = C1;
-        assign L7[2] = L6[3];
+        for (i = 0; i < 2; i = i + 1) begin : L4_CSAS
+            wire [64:0] A = L3[3*i];
+            wire [64:0] B = L3[3*i + 1];
+            wire [64:0] C = L3[3*i + 2];
+            wire [64:0] S = A ^ B ^ C;
+            wire [64:0] Carr = ((A & B) | (B & C) | (A & C)) << 1;
+            assign L4[2*i]     = S;
+            assign L4[2*i + 1] = Carr;
+        end
     endgenerate
 
-    // L8: final 2 entries (reduce 3 -> 2)
-    wire [63:0] L8 [0:1];
+    // Level5: 4 -> 3
+    wire [64:0] L5 [0:2];
     generate
-        wire [63:0] S2 = L7[0] ^ L7[1] ^ L7[2];
-        wire [63:0] C2 = ((L7[0] & L7[1]) | (L7[1] & L7[2]) | (L7[0] & L7[2])) << 1;
-        assign L8[0] = S2;
-        assign L8[1] = C2;
+        wire [64:0] S5 = L4[0] ^ L4[1] ^ L4[2];
+        wire [64:0] C5 = ((L4[0] & L4[1]) | (L4[1] & L4[2]) | (L4[0] & L4[2])) << 1;
+        assign L5[0] = S5;
+        assign L5[1] = C5;
+        assign L5[2] = L4[3];
     endgenerate
 
-    // ----------------------------
-    // Final CPA: add L8[0] + L8[1] (64-bit) using bk_adder32 pairs
-    // ----------------------------
-    wire [31:0] a_lo = L8[0][31:0];
-    wire [31:0] a_hi = L8[0][63:32];
-    wire [31:0] b_lo = L8[1][31:0];
-    wire [31:0] b_hi = L8[1][63:32];
+    // Level6: 3 -> 2 (final)
+    wire [64:0] F0, F1;
+    generate
+        wire [64:0] S6 = L5[0] ^ L5[1] ^ L5[2];
+        wire [64:0] C6 = ((L5[0] & L5[1]) | (L5[1] & L5[2]) | (L5[0] & L5[2])) << 1;
+        assign F0 = S6;
+        assign F1 = C6;
+    endgenerate
 
-    wire [31:0] sum_lo;
-    wire        carry_lo;
-    wire [31:0] sum_hi;
-    wire        carry_hi;
+    // ------------------------
+    // Final CPA (use 66-bit addition to be safe)
+    // ------------------------
+    wire [65:0] final_sum66 = {1'b0, F0} + {1'b0, F1}; // 66-bit
+    wire [64:0] final_sum65 = final_sum66[64:0];       // lower 65 bits
 
-    bk_adder32 FINAL_LO (
-        .a(a_lo),
-        .b(b_lo),
-        .cin(1'b0),
-        .sum(sum_lo),
-        .cout(carry_lo)
-    );
+    // ------------------------
+    // Sign restore: if sign_res then take two's complement of the 65-bit magnitude
+    // ------------------------
+    wire [64:0] final_unsigned = final_sum65;
+    wire [64:0] final_signed_65 = sign_res ? ((~final_unsigned) + 65'd1) : final_unsigned;
 
-    bk_adder32 FINAL_HI (
-        .a(a_hi),
-        .b(b_hi),
-        .cin(carry_lo),
-        .sum(sum_hi),
-        .cout(carry_hi)
-    );
-
-    wire [63:0] Lfinal = {sum_hi, sum_lo};
-
-    // sign correction (two's complement if negative)
-    wire [63:0] Lfinal_inv = ~Lfinal;
-
-    wire [31:0] Lfinal_inv_lo = Lfinal_inv[31:0];
-    wire [31:0] Lfinal_inv_hi = Lfinal_inv[63:32];
-
-    wire [31:0] Lfinal_neg_lo;
-    wire        Lfinal_neg_lo_c;
-
-    bk_adder32 NEG_LO_ADDER (
-        .a(Lfinal_inv_lo),
-        .b(32'd0),
-        .cin(1'b1),
-        .sum(Lfinal_neg_lo),
-        .cout(Lfinal_neg_lo_c)
-    );
-
-    wire [31:0] Lfinal_neg_hi;
-    wire        Lfinal_neg_hi_c;
-
-    bk_adder32 NEG_HI_ADDER (
-        .a(Lfinal_inv_hi),
-        .b(32'd0),
-        .cin(Lfinal_neg_lo_c),
-        .sum(Lfinal_neg_hi),
-        .cout(Lfinal_neg_hi_c)
-    );
-
-    wire [63:0] final_unsigned = Lfinal;
-    wire [63:0] final_signed   = sign_res ? {Lfinal_neg_hi, Lfinal_neg_lo} : final_unsigned;
-
-    assign product = $signed(final_signed[31:0]);
+    // output lower 32 bits as signed
+    assign product = $signed(final_signed_65[31:0]);
 
 endmodule
