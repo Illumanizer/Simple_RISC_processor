@@ -40,6 +40,9 @@ test_simplerisc:
 	iverilog -g2012 -I rtl -o build/tb_simplerisc.vvp rtl/*.v  $(TOP)
 	vvp build/tb_simplerisc.vvp
 
+assemble:
+	python tools/asm.py program.asm program.hex
+
 build:
 	iverilog -g2012 -o $(VVP) $(TB) $(RTL)
 
