@@ -52,15 +52,15 @@ module alu (
 
     // Subtraction via add with two's complement
     wire [31:0] b_neg = ~b + 1;
-    wire [31:0] sum_sub;
-    wire        cout_sub;
-    bk_adder32 SUB_ADDER (
-        .a(a),
-        .b(b_neg),
-        .cin(1'b0),
-        .sum(sum_sub),
-        .cout(cout_sub)
-    );
+    wire [31:0] sub_diff;
+    wire        sub_bout;
+    bk_subtractor32 SUB_INST (
+    .a(a),        // dividend / operand A (as in your ALU)
+    .b(b),        // operand B (to subtract)
+    .bin(1'b0),   // borrow in = 0  => compute a - b
+    .diff(sub_diff),
+    .bout(sub_bout)
+);
 
     // SLT (signed)
     wire slt_bit ;
@@ -111,7 +111,7 @@ module alu (
 
         case (op)
             `ALU_ADD: y = sum_add;
-            `ALU_SUB: y = sum_sub;
+            `ALU_SUB: y = sub_diff;
             `ALU_AND: y = and_r;
             `ALU_OR : y = or_r;
             `ALU_XOR: y = xor_r;

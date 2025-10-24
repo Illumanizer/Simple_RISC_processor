@@ -1,4 +1,10 @@
 `timescale 1ns/1ps
+// div_nonrestoring32_bk_fixed_sub.v
+// Single-cycle, fully-unrolled non-restoring signed divider using bk_adder32
+// and bk_subtractor32 (subtractor used for clarity in subtract cases).
+// Fixed: use stage_P_m[i] as the MSB ("shift_m") when deciding add vs sub.
+// (All additions/subtractions performed via bk_adder32 / bk_subtractor32.)
+
 module div_nonrestoring32_bk (
     input  wire signed [31:0] dividend,
     input  wire signed [31:0] divisor,
@@ -51,17 +57,14 @@ module div_nonrestoring32_bk (
 
     wire [31:0] ub = divs_neg ? ub_neg : divisor;
 
-    // keep ub_inv = ~ub for subtract path (we will use it repeatedly)
-    wire [31:0] ub_inv = ~ub;
-
     // -----------------------------------------------------------
     // Unrolled non-restoring main pipeline (32 stages)
     // Stage 0: P = 0
     // For stage i (0..31):
     //   shift:  P_shift_lo = { P_lo[i][30:0], ua[31-i] }
     //           P_shift_m  = stage_P_m[i]    (the top bit of the 33-bit P)
-    //   if P_shift_m == 0:  T = P_shift - ub    (use bk_adder with b = ~ub, cin=1)
-    //   else:               T = P_shift + ub    (use bk_adder with b = ub,  cin=0)
+    //   if P_shift_m == 0:  T = P_shift - ub    (use bk_subtractor32)
+    //   else:               T = P_shift + ub    (use bk_adder32)
     //   next_P_m = T[32]   (computed via top-bit logic from carry)
     //   next_P_lo = T[31:0]
     // qbit[31-i] = (next_P_m == 0) ? 1 : 0
@@ -90,9 +93,9 @@ module div_nonrestoring32_bk (
             assign shift_lo = { stage_P_lo[i][30:0], shift_in_bit };
 
             // IMPORTANT FIX: use stage_P_m[i] (the top bit of the 33-bit partial remainder)
-            wire shift_m = stage_P_m[i]; // <-- FIXED: was stage_P_lo[i][31] (wrong)
+            wire shift_m = stage_P_m[i];
 
-            // instantiate adders: add-case (shift_lo + ub), sub-case (shift_lo + ~ub + 1)
+            // instantiate adders: add-case (shift_lo + ub)
             wire [31:0] sum_add;
             wire        cout_add;
             bk_adder32 ADDER_ADD (
@@ -103,17 +106,24 @@ module div_nonrestoring32_bk (
                 .cout(cout_add)
             );
 
+            // instantiate subtractor for sub-case: sum_sub = shift_lo - ub
             wire [31:0] sum_sub;
-            wire        cout_sub;
-            bk_adder32 ADDER_SUB (
+            wire        bout_sub;   // borrow-out from subtractor (1 => borrow)
+            wire        cout_sub;   // converted carry-out (cout_sub = ~bout_sub)
+
+            bk_subtractor32 SUB_STAGE (
                 .a(shift_lo),
-                .b(ub_inv),
-                .cin(1'b1),
-                .sum(sum_sub),
-                .cout(cout_sub)
+                .b(ub),
+                .bin(1'b0),   // plain a - b
+                .diff(sum_sub),
+                .bout(bout_sub)
             );
 
+            assign cout_sub = ~bout_sub;
+
             // compute next MSB based on carry_out and shift_m
+            // Keep original logic: next_msb_add = shift_m ^ cout_add
+            //                       next_msb_sub = ~(shift_m ^ cout_sub)
             wire next_msb_add = shift_m ^ cout_add;
             wire next_msb_sub = ~(shift_m ^ cout_sub);
 
